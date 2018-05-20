@@ -1,6 +1,6 @@
 
 import os
-from configparser import ConfigParser
+from configparser import RawConfigParser
 
 from zope import component, interface
 
@@ -8,6 +8,29 @@ import yaml
 
 from ctrl.config.interfaces import ICtrlConfig
 from ctrl.command.interfaces import ISubcommand
+
+
+class M(dict):
+
+    def __setitem__(self, key, value):
+        if key in self:
+            items = self[key]
+            if isinstance(items, str):
+                items = [items]
+            items.append(value)
+            value = items
+        super(M, self).__setitem__(key, value)
+
+    def items(self):
+        items = super(M, self).items()
+        _items = []
+        for k, v in items:
+            if isinstance(v, list):
+                for _v in v:
+                    _items.append((k, _v))
+            else:
+                _items.append((k, v))
+        return tuple(_items)
 
 
 @interface.implementer(ISubcommand)
@@ -136,9 +159,10 @@ class ConfigSubcommand(object):
                     'ipam']['config'][0]['subnet'] = '.'.join(subnet)
 
     def generate_client_compose_file(self, config, startup_config):
+        print(config)
         for client in self.clients:
             startup_config['services'][client] = dict(
-                config['services'][client])
+                config['services'].get(client, {}))
 
     def generate_system_compose_file(self):
         var_path = self.var_path
@@ -170,7 +194,7 @@ class ConfigSubcommand(object):
         services = self.get_services(name)
         env = ''
 
-        socket_config = ConfigParser()
+        socket_config = RawConfigParser(dict_type=M)
         socket_config.optionxform = str
         socket_config.add_section('Socket')
         socket_config.set('Socket', 'ListenStream', listen)
@@ -181,7 +205,7 @@ class ConfigSubcommand(object):
                  % name,
                  'w'))
 
-        service_config = ConfigParser()
+        service_config = RawConfigParser(dict_type=M)
         service_config.optionxform = str
         service_config.add_section('Unit')
         service_config.set(
@@ -207,7 +231,7 @@ class ConfigSubcommand(object):
                  % name,
                  'w'))
 
-        upstream_config = ConfigParser()
+        upstream_config = RawConfigParser(dict_type=M)
         upstream_config.optionxform = str
         upstream_config.add_section('Unit')
         upstream_config.set('Unit', 'Description', description)
