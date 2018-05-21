@@ -289,7 +289,18 @@ class ConfigSubcommand(object):
             print("Creating ZMQ pipe")
             self.generate_service_files('zmq')
 
+    def create_env_file(self):
+        if not self.config.has_section('controller'):
+            return
+        print('Creating env file')
+        env = (
+            'COMPOSE_CONTEXT=%s\nDOCKER_HOST=%s'
+            % (self.config.get('controller', 'context'),
+               'unix:///fat/docker.sock'))
+        open('/etc/controller.env', 'w').write(env)
+
     def update_systemd(self):
+        self.create_env_file()
         self.generate_system_compose_file()
         self.set_timeout_file()
         self.setup_zmq_pipe()

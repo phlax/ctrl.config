@@ -21,12 +21,3 @@ class CtrlConfigExtension(object):
         component.provideUtility(
             config,
             provides=ICtrlConfig)
-        self.create_env_file(config.config)
-
-    def create_env_file(self, config):
-        print('Creating env file')
-        env = (
-            'COMPOSE_CONTEXT=%s\nDOCKER_HOST=%s'
-            % (config.get('controller', 'context'),
-               'unix:///fat/docker.sock'))
-        open('/etc/controller.env', 'w').write(env)

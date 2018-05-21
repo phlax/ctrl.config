@@ -5,6 +5,7 @@ import os
 
 
 DEFAULTS = dict(
+    apps=[],
     description='',
     services='',
     socket='',
