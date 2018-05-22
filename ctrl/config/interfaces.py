@@ -15,3 +15,9 @@ class ICtrlConfig(Interface):
 
     def write():
         pass
+
+
+class IConfiguration(Interface):
+
+    def configure():
+        pass
