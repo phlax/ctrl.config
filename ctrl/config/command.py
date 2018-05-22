@@ -1,6 +1,5 @@
 
 import os
-from configparser import RawConfigParser
 
 from zope import component, interface
 
@@ -9,28 +8,7 @@ import yaml
 from ctrl.config.interfaces import ICtrlConfig
 from ctrl.command.interfaces import ISubcommand
 
-
-class M(dict):
-
-    def __setitem__(self, key, value):
-        if key in self:
-            items = self[key]
-            if isinstance(items, str):
-                items = [items]
-            items.append(value)
-            value = items
-        super(M, self).__setitem__(key, value)
-
-    def items(self):
-        items = super(M, self).items()
-        _items = []
-        for k, v in items:
-            if isinstance(v, list):
-                for _v in v:
-                    _items.append((k, _v))
-            else:
-                _items.append((k, v))
-        return tuple(_items)
+from .systemd import SystemdProxyServiceConfiguration
 
 
 @interface.implementer(ISubcommand)
@@ -182,84 +160,24 @@ class ConfigSubcommand(object):
 
     def generate_service_files(self, name):
         context = self.config.get('controller', 'context')
-        app = self.config.get(
+        project = self.config.get(
             'controller', 'name') or os.path.basename(context)
-        listen = self.config.get(
+        listen_socket = self.config.get(
             "service:%s" % name, 'listen')
         description = self.config.get(
             "service:%s" % name, 'description')
-        socket = self.config.get(
+        upstream_socket = self.config.get(
             "service:%s" % name, 'socket') or ("/sockets/%s.sock" % name)
         service = self.get_service(name)
         services = self.get_services(name)
-        env = ''
-
-        socket_config = RawConfigParser(dict_type=M)
-        socket_config.optionxform = str
-        socket_config.add_section('Socket')
-        socket_config.set('Socket', 'ListenStream', listen)
-        socket_config.add_section('Install')
-        socket_config.set('Install', 'WantedBy', 'sockets.target')
-        socket_config.write(
-            open('/etc/systemd/system/controller-%s--proxy.socket'
-                 % name,
-                 'w'))
-
-        service_config = RawConfigParser(dict_type=M)
-        service_config.optionxform = str
-        service_config.add_section('Unit')
-        service_config.set(
-            'Unit',
-            'Requires',
-            'controller-%s.service' % name)
-        service_config.set(
-            'Unit',
-            'After',
-            'controller-%s.service' % name)
-        service_config.add_section('Service')
-        service_config.set(
-            'Service',
-            'ExecStart',
-            '/usr/local/bin/start-proxy %s' % socket)
-        service_config.set('Service', 'PrivateTmp', 'yes')
-        service_config.set(
-            'Service',
-            'PrivateNetwork',
-            ('yes' if socket.startswith('/') else 'no'))
-        service_config.write(
-            open('/etc/systemd/system/controller-%s--proxy.service'
-                 % name,
-                 'w'))
-
-        upstream_config = RawConfigParser(dict_type=M)
-        upstream_config.optionxform = str
-        upstream_config.add_section('Unit')
-        upstream_config.set('Unit', 'Description', description)
-        upstream_config.set('Unit', 'Requires', 'idle.timer')
-        upstream_config.set('Unit', 'After', 'idle.timer')
-        upstream_config.add_section('Service')
-        upstream_config.set(
-            'Service',
-            'ExecStart',
-            '%s/usr/local/bin/start-service %s %s %s %s %s'
-            % (env, app, name, socket, service, " ".join(services)))
-        upstream_config.set(
-            'Service',
-            'ExecStartPost',
-            "%s/usr/local/bin/wait-for-service %s %s %s %s"
-            % (env, app, name, socket, service))
-        upstream_config.set(
-            'Service',
-            'ExecStop',
-            '%s/usr/local/bin/stop-service %s %s %s %s'
-            % (env, app, name, socket, service))
-        upstream_config.set('Service', 'PrivateTmp', 'true')
-        with open('/var/lib/controller/env') as f:
-            for line in f.readlines():
-                upstream_config.set('Service', 'Environment', line.strip())
-        upstream_config.set('Service', 'RemainAfterExit', 'true')
-        upstream_config.write(
-            open('/etc/systemd/system/controller-%s.service' % name, 'w'))
+        SystemdProxyServiceConfiguration(
+            name,
+            listen_socket,
+            upstream_socket,
+            service=service,
+            services=services,
+            description=description,
+            project=project).update_config()
 
     def get_services(self, name):
         return [
@@ -279,15 +197,21 @@ class ConfigSubcommand(object):
         with open(os.path.join(self.var_path, 'idle-timeout'), 'w') as f:
             f.write(self.config.get('controller', 'idle-timeout'))
 
-    def setup_zmq_pipe(self):
-        with open('/var/lib/controller/env') as f:
-            env = dict(
-                line.strip().split('=')
-                for line
-                in f.readlines())
-        if env.get('LISTEN_ZMQ') or env.get('PUBLISH_ZMQ'):
-            print("Creating ZMQ pipe")
-            self.generate_service_files('zmq')
+    def setup_zmq_pipes(self):
+        if self.config.get('controller', 'zmq-listen'):
+            listen_socket = self.config.get('controller', 'zmq-listen')
+            upstream_socket = '/var/run/sockets/zmq-rpc.sock'
+            if listen_socket.startswith('ipc:///'):
+                listen_socket = listen_socket[6:]
+            SystemdProxyServiceConfiguration(
+                'rpc',
+                listen_socket,
+                upstream_socket,
+                service='zmq-rpc',
+                start_command='/usr/local/bin/start-zmq',
+                wait_command='/usr/local/bin/wait-for-zmq',
+                stop_command='/usr/local/bin/stop-zmq',
+                prefix='zmq').update_config()
 
     def create_env_file(self):
         if not self.config.has_section('controller'):
@@ -303,7 +227,7 @@ class ConfigSubcommand(object):
         self.create_env_file()
         self.generate_system_compose_file()
         self.set_timeout_file()
-        self.setup_zmq_pipe()
+        self.setup_zmq_pipes()
         for name in self.services:
             self.generate_service_files(name)
             self.generate_compose_file(name)
