@@ -1,11 +1,11 @@
 
 from zope import component
 
-from ctrl.command.interfaces import ICommandRunner, ISubcommand
+from ctrl.core.interfaces import (
+    ICommandRunner, ICtrlConfig, ISubcommand)
 
 from .config import BaseConfig
 from .command import ConfigSubcommand
-from .interfaces import ICtrlConfig
 
 
 class CtrlConfigExtension(object):
