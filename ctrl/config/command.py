@@ -11,7 +11,7 @@ class ConfigSubcommand(object):
     def __init__(self, context):
         self.context = context
 
-    async def handle(self, loop, command, *args, **kwargs):
+    async def handle(self, command, *args, **kwargs):
         return await getattr(self, 'handle_%s' % command)(*args, **kwargs)
 
     async def handle_update_env(self, *args, **kwargs):
